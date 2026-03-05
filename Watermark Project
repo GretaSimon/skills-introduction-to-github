@@ -1,0 +1,401 @@
+import tkinter as tk
+from tkinter import filedialog, messagebox, simpledialog
+from PIL import Image, ImageTk, ImageDraw, ImageFont
+import tkinter.colorchooser as colorchooser
+import os
+from pathlib import Path
+
+
+class WatermarkApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Watermark App")
+        self.image_path = None
+        self.logo_path = None
+        self.img = None
+        self.original_img = None  # Keep original for multiple watermarks
+        self.display_img = None  # For canvas display
+
+        # Watermark settings
+        self.watermark_color = (255, 255, 255)  # Default: white
+        self.watermark_size = 36  # Default: 36pt
+        self.watermark_font = "arial.ttf"  # Default: Arial
+        self.watermark_text = ""
+        self.watermark_x = 0
+        self.watermark_y = 0
+        self.is_dragging = False
+        self.drag_start_x = 0
+        self.drag_start_y = 0
+        self.drag_offset_x = 0
+        self.drag_offset_y = 0
+
+        # Initialize font_paths BEFORE calling detect_system_fonts
+        self.font_paths = {}
+
+        # Detect available system fonts
+        self.available_fonts = self.detect_system_fonts()
+
+        # GUI Layout
+        self.canvas = tk.Canvas(root, width=500, height=400, bg="gray", cursor="hand2")
+        self.canvas.pack(pady=10)
+        self.canvas.bind("<Button-1>", self.on_canvas_press)
+        self.canvas.bind("<B1-Motion>", self.on_canvas_drag)
+        self.canvas.bind("<ButtonRelease-1>", self.on_canvas_release)
+
+        frame = tk.Frame(root)
+        frame.pack()
+
+        # Store button references to enable/disable them
+        self.upload_btn = tk.Button(frame, text="Upload Image", command=self.upload_image, bg="lightblue")
+        self.upload_btn.grid(row=0, column=0, padx=5)
+
+        self.text_btn = tk.Button(frame, text="Add Text Watermark", command=self.text_watermark, bg="lightgray",
+                                  state="disabled")
+        self.text_btn.grid(row=0, column=1, padx=5)
+
+        self.logo_btn = tk.Button(frame, text="Add Logo Watermark", command=self.logo_watermark, bg="lightgray",
+                                  state="disabled")
+        self.logo_btn.grid(row=0, column=2, padx=5)
+
+        self.save_btn = tk.Button(frame, text="Save Image", command=self.save_image, bg="lightgray", state="disabled")
+        self.save_btn.grid(row=0, column=3, padx=5)
+
+        self.reset_btn = tk.Button(frame, text="Reset Position", command=self.reset_position, bg="lightyellow",
+                                   state="disabled")
+        self.reset_btn.grid(row=0, column=4, padx=5)
+
+        # Settings frame
+        settings_frame = tk.Frame(root)
+        settings_frame.pack(pady=10)
+
+        tk.Label(settings_frame, text="Text:").grid(row=0, column=0, padx=5)
+        self.text_entry = tk.Entry(settings_frame, width=20)
+        self.text_entry.grid(row=0, column=1, padx=5)
+        self.text_entry.insert(0, "Enter watermark text...")
+
+        tk.Label(settings_frame, text="Font Size:").grid(row=0, column=2, padx=5)
+        self.size_var = tk.StringVar(value="36")
+        size_spinbox = tk.Spinbox(settings_frame, from_=8, to=100, textvariable=self.size_var, width=5)
+        size_spinbox.grid(row=0, column=3, padx=5)
+
+        tk.Label(settings_frame, text="Font:").grid(row=0, column=4, padx=5)
+        self.font_var = tk.StringVar(value=self.available_fonts[0] if self.available_fonts else "Default")
+        self.font_dropdown = tk.OptionMenu(settings_frame, self.font_var, *self.available_fonts)
+        self.font_dropdown.grid(row=0, column=5, padx=5)
+
+        self.color_btn = tk.Button(settings_frame, text="Color", command=self.choose_color, bg="white", width=8)
+        self.color_btn.grid(row=0, column=6, padx=5)
+
+        # Font style frame (Regular vs Cursive)
+        style_frame = tk.Frame(root)
+        style_frame.pack(pady=5)
+
+        tk.Label(style_frame, text="Font Style:").pack(side=tk.LEFT, padx=5)
+        self.style_var = tk.StringVar(value="Regular")
+        tk.Radiobutton(style_frame, text="Regular", variable=self.style_var, value="Regular",
+                       command=self.on_style_change).pack(side=tk.LEFT, padx=5)
+        tk.Radiobutton(style_frame, text="Bold", variable=self.style_var, value="Bold",
+                       command=self.on_style_change).pack(side=tk.LEFT, padx=5)
+        tk.Radiobutton(style_frame, text="Italic", variable=self.style_var, value="Italic",
+                       command=self.on_style_change).pack(side=tk.LEFT, padx=5)
+
+        # Info label
+        self.info_label = tk.Label(root,
+                                   text=f"Available Fonts: {len(self.available_fonts)} | Drag watermark on preview to reposition",
+                                   fg="blue", font=("Arial", 9))
+        self.info_label.pack()
+
+        # Status label
+        self.status_label = tk.Label(root, text="Ready. Upload an image to start.", fg="green")
+        self.status_label.pack()
+
+    def detect_system_fonts(self):
+        """Detect available system fonts on Windows, Mac, and Linux"""
+        font_names = []
+        font_dirs = []
+
+        # Windows font directories
+        if os.name == 'nt':  # Windows
+            font_dirs = [
+                r"C:\Windows\Fonts",
+                os.path.expanduser(r"~\AppData\Local\Microsoft\Windows\Fonts"),
+            ]
+        # Mac font directories
+        elif os.uname().sysname == 'Darwin':  # macOS
+            font_dirs = [
+                "/Library/Fonts",
+                "/System/Library/Fonts",
+                os.path.expanduser("~/Library/Fonts"),
+            ]
+        # Linux font directories
+        else:  # Linux
+            font_dirs = [
+                "/usr/share/fonts",
+                "/usr/local/share/fonts",
+                os.path.expanduser("~/.local/share/fonts"),
+            ]
+
+        # Search for font files
+        for font_dir in font_dirs:
+            if os.path.exists(font_dir):
+                try:
+                    for file in os.listdir(font_dir):
+                        if file.lower().endswith(('.ttf', '.otf')):
+                            font_path = os.path.join(font_dir, file)
+                            # Extract font name from filename
+                            font_name = os.path.splitext(file)[0]
+                            if font_name not in font_names:
+                                font_names.append(font_name)
+                                self.font_paths[font_name] = font_path
+                except PermissionError:
+                    continue
+                except Exception as e:
+                    print(f"Error scanning {font_dir}: {e}")
+                    continue
+
+        # Sort and return unique fonts (limit to 30 to avoid overcrowding dropdown)
+        font_names = sorted(list(set(font_names)))
+        print(f"Detected {len(font_names)} fonts")
+        return font_names[:30] if font_names else ["Default"]
+
+    def get_font_path(self, font_name, style):
+        """Get the appropriate font file path based on font name and style"""
+        # If we have a direct path, use it
+        if font_name in self.font_paths:
+            base_path = self.font_paths[font_name]
+
+            # Try to find styled variants
+            font_dir = os.path.dirname(base_path)
+            font_base = os.path.splitext(font_name)[0]
+
+            if style == "Bold":
+                # Look for Bold variant
+                for variant in [f"{font_base}bd.ttf", f"{font_base}b.ttf", f"{font_base} Bold.ttf",
+                                f"{font_base}BD.ttf"]:
+                    full_path = os.path.join(font_dir, variant)
+                    if os.path.exists(full_path):
+                        return full_path
+            elif style == "Italic":
+                # Look for Italic variant
+                for variant in [f"{font_base}it.ttf", f"{font_base}i.ttf", f"{font_base} Italic.ttf",
+                                f"{font_base}I.ttf"]:
+                    full_path = os.path.join(font_dir, variant)
+                    if os.path.exists(full_path):
+                        return full_path
+
+            # Return base font if no variant found
+            if os.path.exists(base_path):
+                return base_path
+
+        return None
+
+    def on_style_change(self):
+        """Handle font style change"""
+        if self.watermark_text:
+            self.redraw_watermark()
+
+    def update_button_states(self):
+        """Enable/disable buttons based on image state"""
+        if self.img:
+            self.text_btn.config(state="normal", bg="lightgreen")
+            self.logo_btn.config(state="normal", bg="lightgreen")
+            self.save_btn.config(state="normal", bg="lightgreen")
+        else:
+            self.text_btn.config(state="disabled", bg="lightgray")
+            self.logo_btn.config(state="disabled", bg="lightgray")
+            self.save_btn.config(state="disabled", bg="lightgray")
+            self.reset_btn.config(state="disabled", bg="lightyellow")
+
+    def choose_color(self):
+        """Open color picker dialog"""
+        color_code = colorchooser.askcolor(color=self.watermark_color, title="Choose Watermark Color")
+        if color_code[0]:  # If user selected a color
+            self.watermark_color = tuple(int(c) for c in color_code[0])
+            # Update button color to show selected color
+            hex_color = color_code[1]
+            self.color_btn.config(bg=hex_color)
+            self.status_label.config(text=f"✓ Color changed to {hex_color}", fg="green")
+            # Redraw if watermark already placed
+            if self.watermark_text:
+                self.redraw_watermark()
+
+    def upload_image(self):
+        file_path = filedialog.askopenfilename(filetypes=[("Image files", "*.jpg *.png *.jpeg *.bmp")])
+        if file_path:
+            self.image_path = file_path
+            self.original_img = Image.open(file_path)
+            self.img = self.original_img.copy()
+            self.display_img = self.img.copy()
+            self.display_image(self.display_img)
+            self.status_label.config(text=f"✓ Image loaded: {file_path.split(os.sep)[-1]}", fg="green")
+            self.watermark_x = 0
+            self.watermark_y = 0
+            self.update_button_states()
+
+    def text_watermark(self):
+        if not self.img:
+            messagebox.showerror("Error", "Upload an image first!")
+            return
+
+        text = self.text_entry.get()
+        if text == "Enter watermark text..." or text.strip() == "":
+            messagebox.showerror("Error", "Please enter watermark text!")
+            return
+
+        self.watermark_text = text
+        self.reset_btn.config(state="normal", bg="lightyellow")
+        self.redraw_watermark()
+        style = self.style_var.get()
+        self.status_label.config(text=f"✓ Watermark added: '{text}' ({style}) | Drag to reposition", fg="green")
+
+    def redraw_watermark(self):
+        """Redraw watermark with current position"""
+        if not self.watermark_text or not self.img:
+            return
+
+        # Get settings from UI
+        try:
+            font_size = int(self.size_var.get())
+        except ValueError:
+            messagebox.showerror("Error", "Font size must be a number!")
+            return
+
+        font_name = self.font_var.get()
+        style = self.style_var.get()
+        font_path = self.get_font_path(font_name, style)
+
+        # Start with original image
+        self.display_img = self.img.copy()
+        draw = ImageDraw.Draw(self.display_img)
+
+        # Choose font with selected size
+        try:
+            if font_path and os.path.exists(font_path):
+                font = ImageFont.truetype(font_path, font_size)
+            else:
+                # Fallback to default
+                font = ImageFont.load_default()
+                if font_name != "Default":
+                    self.status_label.config(text=f"⚠ Using default font ('{font_name}' not found)", fg="orange")
+        except Exception as e:
+            font = ImageFont.load_default()
+            self.status_label.config(text=f"⚠ Font error: using default", fg="orange")
+
+        # Get text dimensions
+        bbox = draw.textbbox((0, 0), self.watermark_text, font=font)
+        textwidth = bbox[2] - bbox[0]
+        textheight = bbox[3] - bbox[1]
+
+        # Calculate position with drag offset
+        width, height = self.display_img.size
+        x = width - textwidth - 20 + self.watermark_x
+        y = height - textheight - 20 + self.watermark_y
+
+        # Clamp position to canvas bounds
+        x = max(0, min(x, width - textwidth))
+        y = max(0, min(y, height - textheight))
+
+        # Draw text with chosen color
+        draw.text((x, y), self.watermark_text, font=font, fill=self.watermark_color)
+        self.display_image(self.display_img)
+
+    def on_canvas_press(self, event):
+        """Handle mouse press on canvas"""
+        if not self.watermark_text:
+            return
+        self.is_dragging = True
+        self.drag_start_x = event.x
+        self.drag_start_y = event.y
+
+    def on_canvas_drag(self, event):
+        """Handle mouse drag on canvas"""
+        if not self.is_dragging or not self.watermark_text:
+            return
+
+        # Calculate drag delta
+        delta_x = event.x - self.drag_start_x
+        delta_y = event.y - self.drag_start_y
+
+        # Scale delta to original image coordinates
+        canvas_width = self.canvas.winfo_width()
+        canvas_height = self.canvas.winfo_height()
+        orig_width, orig_height = self.img.size
+
+        scale_x = orig_width / canvas_width if canvas_width > 0 else 1
+        scale_y = orig_height / canvas_height if canvas_height > 0 else 1
+
+        self.watermark_x = int(delta_x * scale_x)
+        self.watermark_y = int(delta_y * scale_y)
+
+        self.redraw_watermark()
+        self.status_label.config(
+            text=f"Position: X={self.watermark_x}, Y={self.watermark_y} | Style: {self.style_var.get()}", fg="blue")
+
+    def on_canvas_release(self, event):
+        """Handle mouse release on canvas"""
+        self.is_dragging = False
+
+    def reset_position(self):
+        """Reset watermark to default position"""
+        self.watermark_x = 0
+        self.watermark_y = 0
+        self.redraw_watermark()
+        self.status_label.config(text="✓ Position reset to default", fg="green")
+
+    def logo_watermark(self):
+        if not self.img:
+            messagebox.showerror("Error", "Upload an image first!")
+            return
+
+        logo_file = filedialog.askopenfilename(filetypes=[("Image files", "*.png *.jpg *.jpeg *.bmp")])
+        if logo_file:
+            try:
+                logo = Image.open(logo_file).convert("RGBA")
+                # Resize logo
+                logo.thumbnail((100, 100))
+                # Place logo at bottom right
+                img = self.img.copy().convert("RGBA")
+                width, height = img.size
+                lw, lh = logo.size
+                x = width - lw - 20
+                y = height - lh - 20
+
+                # Adjust transparency
+                watermark = Image.new("RGBA", img.size)
+                watermark.paste(logo, (x, y), logo)
+                img = Image.alpha_composite(img, watermark).convert("RGB")
+
+                self.img = img
+                self.display_img = img.copy()
+                self.display_image(self.display_img)
+                self.status_label.config(text=f"✓ Logo watermark added: {logo_file.split(os.sep)[-1]}", fg="green")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to add logo: {str(e)}")
+
+    def save_image(self):
+        if not self.display_img:
+            messagebox.showerror("Error", "No image to save!")
+            return
+        file_path = filedialog.asksaveasfilename(defaultextension=".png",
+                                                 filetypes=[("PNG files", "*.png"), ("JPEG files", "*.jpg;*.jpeg")])
+        if file_path:
+            try:
+                self.display_img.save(file_path)
+                self.status_label.config(text=f"✓ Image saved successfully!", fg="green")
+                messagebox.showinfo("Success", f"Image saved to:\n{file_path}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to save image: {str(e)}")
+
+    def display_image(self, img):
+        try:
+            img_tk = ImageTk.PhotoImage(img.resize((500, 400)))
+            self.canvas.img_tk = img_tk
+            self.canvas.create_image(0, 0, anchor="nw", image=img_tk)
+        except Exception as e:
+            print(f"Error displaying image: {e}")
+
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = WatermarkApp(root)
+    root.mainloop()
