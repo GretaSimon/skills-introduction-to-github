@@ -1,0 +1,473 @@
+import turtle
+from typing import List, Optional
+
+
+class TicTacToe:
+    """A Tic Tac Toe game with GUI using turtle graphics."""
+
+    def __init__(self):
+        """Initialize the game board and GUI."""
+        self.board = [' ' for _ in range(9)]  # 3x3 board represented as list of 9 elements
+        self.current_player = 'X'
+        self.game_over = False
+        self.winner = None
+        self.human_player = 'X'
+        self.ai_player = 'O'
+        self.game_mode = None  # 'two_player' or 'ai'
+
+        # Player names
+        self.player_x_name = "Player X"
+        self.player_o_name = "Player O"
+
+        # Score tracking
+        self.player_x_wins = 0
+        self.player_o_wins = 0
+        self.draws = 0
+
+        # Set up the turtle window (10% smaller: 800x800 -> 720x720)
+        self.screen = turtle.Screen()
+        self.screen.title("Tic Tac Toe")
+        self.screen.setup(width=720, height=720)
+        self.screen.bgcolor("white")
+
+        # Create game board and UI elements
+        self.board_drawer = turtle.Turtle()
+        self.board_drawer.speed(0)
+        self.board_drawer.hideturtle()
+
+        self.text_drawer = turtle.Turtle()
+        self.text_drawer.speed(0)
+        self.text_drawer.hideturtle()
+
+        self.click_turtle = turtle.Turtle()
+        self.click_turtle.hideturtle()
+
+        self.cell_width = 150
+        self.cell_height = 150
+        # Centered board coordinates, moved 15% upwards
+        self.board_offset_x = -225
+        self.board_offset_y = 125
+
+        # Store cell coordinates for click detection
+        self.cells = []
+        self._calculate_cell_positions()
+
+        self.screen.onscreenclick(self.handle_click)
+
+    def _calculate_cell_positions(self):
+        """Calculate the center coordinates of each cell."""
+        self.cells = []
+        for row in range(3):
+            for col in range(3):
+                x = self.board_offset_x + col * self.cell_width + self.cell_width // 2
+                y = self.board_offset_y - row * self.cell_height - self.cell_height // 2
+                self.cells.append((x, y))
+
+    def draw_board(self):
+        """Draw the game board grid."""
+        self.board_drawer.penup()
+        self.board_drawer.color("black")
+        self.board_drawer.pensize(3)
+
+        # Draw vertical lines
+        for i in range(1, 3):
+            x = self.board_offset_x + i * self.cell_width
+            self.board_drawer.penup()
+            self.board_drawer.goto(x, self.board_offset_y)
+            self.board_drawer.pendown()
+            self.board_drawer.goto(x, self.board_offset_y - 450)
+
+        # Draw horizontal lines
+        for i in range(1, 3):
+            y = self.board_offset_y - i * self.cell_height
+            self.board_drawer.penup()
+            self.board_drawer.goto(self.board_offset_x, y)
+            self.board_drawer.pendown()
+            self.board_drawer.goto(self.board_offset_x + 450, y)
+
+    def draw_game_state(self):
+        """Draw the current game state (X's and O's)."""
+        self.board_drawer.penup()
+        self.board_drawer.pensize(3)
+
+        for i, cell in enumerate(self.board):
+            if cell != ' ':
+                x, y = self.cells[i]
+                self.board_drawer.color("black")
+
+                if cell == 'X':
+                    self._draw_x(x, y)
+                elif cell == 'O':
+                    self._draw_o(x, y)
+
+    def _draw_x(self, x, y):
+        """Draw an X at the given coordinates."""
+        offset = 30
+        self.board_drawer.penup()
+        self.board_drawer.goto(x - offset, y + offset)
+        self.board_drawer.pendown()
+        self.board_drawer.goto(x + offset, y - offset)
+
+        self.board_drawer.penup()
+        self.board_drawer.goto(x + offset, y + offset)
+        self.board_drawer.pendown()
+        self.board_drawer.goto(x - offset, y - offset)
+
+    def _draw_o(self, x, y):
+        """Draw an O at the given coordinates."""
+        self.board_drawer.penup()
+        self.board_drawer.goto(x, y - 30)
+        self.board_drawer.pendown()
+        self.board_drawer.circle(30)
+
+    def draw_scoreboard(self):
+        """Draw the scoreboard."""
+        self.text_drawer.penup()
+        self.text_drawer.color("darkblue")
+
+        # Draw scoreboard background (positioned at top-left)
+        self.text_drawer.goto(-360, 320)
+        self.text_drawer.pendown()
+        self.text_drawer.pensize(2)
+        self.text_drawer.color("lightblue")
+        self.text_drawer.begin_fill()
+        for _ in range(2):
+            self.text_drawer.forward(200)
+            self.text_drawer.right(90)
+            self.text_drawer.forward(120)
+            self.text_drawer.right(90)
+        self.text_drawer.end_fill()
+
+        # Draw scoreboard text
+        self.text_drawer.penup()
+        self.text_drawer.color("darkblue")
+        self.text_drawer.goto(-260, 300)
+        self.text_drawer.write("SCOREBOARD", align="center", font=("Arial", 14, "bold"))
+
+        self.text_drawer.goto(-260, 260)
+        self.text_drawer.write(f"{self.player_x_name}: {self.player_x_wins}", align="center",
+                               font=("Arial", 11, "normal"))
+
+        self.text_drawer.goto(-260, 230)
+        self.text_drawer.write(f"{self.player_o_name}: {self.player_o_wins}", align="center",
+                               font=("Arial", 11, "normal"))
+
+        self.text_drawer.goto(-260, 200)
+        self.text_drawer.write(f"Draws: {self.draws}", align="center", font=("Arial", 11, "normal"))
+
+    def update_display(self):
+        """Update the entire game display."""
+        self.board_drawer.clear()
+        self.text_drawer.clear()
+
+        self.draw_board()
+        self.draw_game_state()
+        self.draw_scoreboard()
+        self.draw_status()
+
+    def draw_status(self):
+        """Draw the game status and instructions."""
+        self.text_drawer.penup()
+
+        # Draw current turn at top right
+        if self.current_player == 'X':
+            current_name = self.player_x_name
+        else:
+            current_name = self.player_o_name
+
+        self.text_drawer.color("darkblue")
+        self.text_drawer.goto(20, 300)
+        self.text_drawer.write(f"Turn: {current_name}", align="center", font=("Arial", 12, "bold"))
+
+        # Draw game over status at bottom
+        self.text_drawer.goto(0, -280)
+
+        if self.game_over:
+            if self.winner:
+                self.draw_win_animation()
+                self.text_drawer.goto(0, -220)
+                if self.game_mode == 'ai' and self.winner == 'O':
+                    self.text_drawer.color("red")
+                    self.text_drawer.write("❌ YOU LOST! ❌",
+                                           align="center", font=("Arial", 34, "bold"))
+                else:
+                    self.text_drawer.color("green")
+                    winner_name = self.player_x_name if self.winner == 'X' else self.player_o_name
+                    self.text_drawer.write("✅ You WIN! ✅",
+                                           align="center", font=("Arial", 34, "bold"))
+            else:
+                self.draw_draw_animation()
+                self.text_drawer.goto(0, -220)
+                self.text_drawer.color("orange")
+                self.text_drawer.write("🤝 IT'S A DRAW! 🤝",
+                                       align="center", font=("Arial", 34, "bold"))
+
+            self.text_drawer.goto(0, -160)
+            self.text_drawer.color("black")
+            self.text_drawer.write("Click anywhere to play again",
+                                   align="center", font=("Arial", 24, "normal"))
+        else:
+            if self.game_mode == 'ai' and self.current_player == 'O':
+                self.text_drawer.goto(0, -320)
+                self.text_drawer.color("black")
+                self.text_drawer.write("🤖 AI is thinking...",
+                                       align="center", font=("Arial", 12, "normal"))
+
+    def draw_win_animation(self):
+        """Draw animation and graphics for a win."""
+        winner = self.winner
+
+        # Draw confetti-like celebration
+        self.text_drawer.penup()
+        self.text_drawer.color("gold")
+
+        # Draw stars around the winner
+        star_positions = [
+            (-300, 150), (300, 150), (-300, -100), (300, -100),
+            (0, 200), (0, -150)
+        ]
+
+        for x, y in star_positions:
+            self.text_drawer.goto(x, y)
+            self.text_drawer.write("⭐", align="center", font=("Arial", 20, "normal"))
+
+        # Draw winning line if applicable
+        self.draw_winning_line()
+
+    def draw_draw_animation(self):
+        """Draw animation and graphics for a draw."""
+        self.text_drawer.penup()
+        self.text_drawer.color("purple")
+
+        # Draw hand shake emojis
+        shake_positions = [
+            (-300, 100), (300, 100), (-300, -50), (300, -50)
+        ]
+
+        for x, y in shake_positions:
+            self.text_drawer.goto(x, y)
+            self.text_drawer.write("🤝", align="center", font=("Arial", 20, "normal"))
+
+    def draw_winning_line(self):
+        """Draw a line through the winning combination."""
+        winning_combinations = [
+            [0, 1, 2], [3, 4, 5], [6, 7, 8],  # Rows
+            [0, 3, 6], [1, 4, 7], [2, 5, 8],  # Columns
+            [0, 4, 8], [2, 4, 6]  # Diagonals
+        ]
+
+        for combo in winning_combinations:
+            if all(self.board[i] == self.winner for i in combo):
+                x1, y1 = self.cells[combo[0]]
+                x2, y2 = self.cells[combo[2]]
+
+                self.board_drawer.penup()
+                self.board_drawer.goto(x1, y1)
+                self.board_drawer.pendown()
+                self.board_drawer.pensize(5)
+                self.board_drawer.color("gold")
+                self.board_drawer.goto(x2, y2)
+                break
+
+    def draw_menu(self):
+        """Draw the main menu."""
+        self.board_drawer.clear()
+        self.text_drawer.clear()
+
+        self.text_drawer.penup()
+        self.text_drawer.color("darkblue")
+        self.text_drawer.goto(0, 200)
+        self.text_drawer.write("TIC TAC TOE", align="center", font=("Arial", 48, "bold"))
+
+        self.text_drawer.goto(0, 100)
+        self.text_drawer.write("Select Game Mode:", align="center", font=("Arial", 20, "normal"))
+
+        # Draw buttons
+        self._draw_button("2-PLAYER", -150, -20, "two_player")
+        self._draw_button("vs AI", 150, -20, "ai")
+
+    def _draw_button(self, text, x, y, mode):
+        """Draw a clickable button with simple rectangular design."""
+        # Draw button background
+        self.text_drawer.penup()
+        self.text_drawer.goto(x - 60, y + 30)
+        self.text_drawer.pendown()
+        self.text_drawer.pensize(2)
+        self.text_drawer.color("lightblue")
+        self.text_drawer.begin_fill()
+        for _ in range(2):
+            self.text_drawer.forward(120)
+            self.text_drawer.right(90)
+            self.text_drawer.forward(60)
+            self.text_drawer.right(90)
+        self.text_drawer.end_fill()
+
+        # Draw button text
+        self.text_drawer.penup()
+        self.text_drawer.color("darkblue")
+        self.text_drawer.goto(x, y)
+        self.text_drawer.write(text, align="center", font=("Arial", 16, "bold"))
+
+        # Store button info for click detection
+        if not hasattr(self, 'buttons'):
+            self.buttons = []
+        self.buttons.append({'x': x, 'y': y, 'mode': mode, 'width': 60, 'height': 30})
+
+    def is_winner(self, player: str) -> bool:
+        """Check if the specified player has won."""
+        winning_combinations = [
+            [0, 1, 2], [3, 4, 5], [6, 7, 8],  # Rows
+            [0, 3, 6], [1, 4, 7], [2, 5, 8],  # Columns
+            [0, 4, 8], [2, 4, 6]  # Diagonals
+        ]
+
+        for combo in winning_combinations:
+            if all(self.board[i] == player for i in combo):
+                return True
+        return False
+
+    def is_board_full(self) -> bool:
+        """Check if the board is full (draw condition)."""
+        return ' ' not in self.board
+
+    def get_available_moves(self) -> List[int]:
+        """Get list of available positions on the board."""
+        return [i for i, spot in enumerate(self.board) if spot == ' ']
+
+    def make_move(self, position: int) -> bool:
+        """Make a move at the specified position (0-8)."""
+        if position < 0 or position > 8 or self.board[position] != ' ':
+            return False
+
+        self.board[position] = self.current_player
+
+        # Check for winner
+        if self.is_winner(self.current_player):
+            self.game_over = True
+            self.winner = self.current_player
+            self.update_score()
+        # Check for draw
+        elif self.is_board_full():
+            self.game_over = True
+            self.winner = None
+            self.draws += 1
+
+        return True
+
+    def update_score(self):
+        """Update the score based on the winner."""
+        if self.winner == 'X':
+            self.player_x_wins += 1
+        elif self.winner == 'O':
+            self.player_o_wins += 1
+
+    def switch_player(self):
+        """Switch to the other player."""
+        self.current_player = 'O' if self.current_player == 'X' else 'X'
+
+    def minimax(self, depth: int, is_maximizing: bool) -> int:
+        """Minimax algorithm for AI decision making."""
+        if self.is_winner('O'):  # AI won
+            return 10 - depth
+        if self.is_winner('X'):  # Human won
+            return depth - 10
+        if self.is_board_full():  # Draw
+            return 0
+
+        if is_maximizing:  # AI's turn (maximize score)
+            max_score = -float('inf')
+            for move in self.get_available_moves():
+                self.board[move] = 'O'
+                score = self.minimax(depth + 1, False)
+                self.board[move] = ' '
+                max_score = max(score, max_score)
+            return max_score
+        else:  # Human's turn (minimize score)
+            min_score = float('inf')
+            for move in self.get_available_moves():
+                self.board[move] = 'X'
+                score = self.minimax(depth + 1, True)
+                self.board[move] = ' '
+                min_score = min(score, min_score)
+            return min_score
+
+    def get_ai_move(self) -> int:
+        """Get the best move for the AI using minimax algorithm."""
+        best_score = -float('inf')
+        best_move = None
+
+        for move in self.get_available_moves():
+            self.board[move] = 'O'
+            score = self.minimax(0, False)
+            self.board[move] = ' '
+
+            if score > best_score:
+                best_score = score
+                best_move = move
+
+        return best_move
+
+    def handle_click(self, x, y):
+        """Handle mouse clicks on the board."""
+        if self.game_mode is None:
+            # Check menu buttons
+            if hasattr(self, 'buttons'):
+                for button in self.buttons:
+                    if (abs(x - button['x']) < button['width'] and
+                            abs(y - button['y']) < button['height']):
+                        self.start_game(button['mode'])
+        else:
+            # Check board cells
+            if self.game_over:
+                self.reset_game()
+                return
+
+            if self.current_player == 'X' or (self.game_mode == 'two_player' and self.current_player == 'O'):
+                for i, (cx, cy) in enumerate(self.cells):
+                    if (abs(x - cx) < self.cell_width // 2 and
+                            abs(y - cy) < self.cell_height // 2):
+                        if self.make_move(i):
+                            self.update_display()
+                            if not self.game_over:
+                                self.switch_player()
+                                if self.game_mode == 'ai' and self.current_player == 'O':
+                                    self.screen.ontimer(self.ai_move, 500)
+                        break
+
+    def ai_move(self):
+        """Execute AI move."""
+        if not self.game_over and self.current_player == 'O':
+            position = self.get_ai_move()
+            self.make_move(position)
+            self.update_display()
+            if not self.game_over:
+                self.switch_player()
+
+    def start_game(self, mode):
+        """Start a new game with the selected mode."""
+        self.game_mode = mode
+        self.reset_game()
+
+    def reset_game(self):
+        """Reset the game state."""
+        self.board = [' ' for _ in range(9)]
+        self.current_player = 'X'
+        self.game_over = False
+        self.winner = None
+        self.update_display()
+
+    def play(self):
+        """Start the game."""
+        self.buttons = []
+        self.draw_menu()
+        self.screen.mainloop()
+
+
+def main():
+    """Main function to run the game."""
+    game = TicTacToe()
+    game.play()
+
+
+if __name__ == "__main__":
+    main()
